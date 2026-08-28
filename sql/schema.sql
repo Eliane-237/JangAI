@@ -141,8 +141,10 @@ CREATE INDEX IF NOT EXISTS idx_chunks_hierarchy ON chunks USING GIN (hierarchy);
 -- --------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_chunks_trgm
     ON chunks USING GIN (content gin_trgm_ops);
+-- Plein-texte sur `indexed_content` : titres et contexte hierarchique
+-- compris, la ou vivent souvent les termes les plus discriminants.
 CREATE INDEX IF NOT EXISTS idx_chunks_fts
-    ON chunks USING GIN (to_tsvector('fr_unaccent', content));
+    ON chunks USING GIN (to_tsvector('fr_unaccent', indexed_content));
 
 -- --------------------------------------------------------------------
 -- Index vectoriel HNSW.

@@ -201,7 +201,9 @@ class Settings(BaseSettings):
 
     # --- LLM (Groq) ---------------------------------------------------
     groq_api_key: str = Field(default="")
-    groq_model: str = Field(default="llama-3.3-70b-versatile")
+    # Modeles Groq disponibles (aout 2026) : openai/gpt-oss-120b (le plus
+    # capable), qwen/qwen3.8-27b, groq/compound. Surchargeable via GROQ_MODEL.
+    groq_model: str = Field(default="openai/gpt-oss-120b")
     groq_temperature: float = Field(default=0.2)
     groq_max_tokens: int = Field(default=1500)
     max_context_chars: int = Field(default=8000)
