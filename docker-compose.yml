@@ -1,0 +1,62 @@
+# ======================================================================
+# JangAI — Infrastructure locale
+#
+#   docker compose up -d
+#   docker compose logs -f postgres
+#   docker compose down            (les donnees sont conservees)
+#   docker compose down -v         (remise a zero complete)
+# ======================================================================
+
+services:
+  postgres:
+    # Image officielle pgvector : l'extension est deja compilee, ce qui
+    # evite un build local et les problemes de version d'extension.
+    image: pgvector/pgvector:pg17
+    container_name: jangai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jangai}
+      POSTGRES_USER: ${POSTGRES_USER:-jangai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      # Collation adaptee au francais pour le tri et la comparaison.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Les scripts de ce dossier sont joues UNE SEULE FOIS, a la creation
+      # du volume. Modifier schema.sql ensuite n'a aucun effet : il faut
+      # relancer avec `docker compose down -v`.
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jangai} -d ${POSTGRES_DB:-jangai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # La construction d'un index HNSW est gourmande en memoire de travail.
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c maintenance_work_mem=1GB
+      -c work_mem=64MB
+      -c max_parallel_maintenance_workers=4
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: jangai_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@jangai.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  pgadmin_data:

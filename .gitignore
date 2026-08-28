@@ -1,0 +1,77 @@
+# ======================================================================
+# JangAI — .gitignore
+# ======================================================================
+
+# --- Secrets et configuration locale ---------------------------------
+# NE JAMAIS committer : contient la cle Groq, le mot de passe PostgreSQL.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Environnements virtuels Python ----------------------------------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# --- Cache et artefacts Python ---------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# --- Donnees (corpus, sorties du pipeline) ---------------------------
+# Les PDF sources et tout ce que le pipeline genere ne vont pas sur git.
+data/raw/
+data/diagnostics/
+data/intermediate/
+data/intermediaire/
+data/ocr_cache/
+data/cache_ocr/
+*.pdf
+# Conserver la structure des dossiers si besoin :
+!data/**/.gitkeep
+
+# --- Journaux --------------------------------------------------------
+logs/
+*.log
+
+# --- Modeles et caches Hugging Face / Docling ------------------------
+# Les poids de modeles sont lourds et se re-telechargent : jamais sur git.
+.cache/
+models/
+*.onnx
+*.safetensors
+*.bin
+*.pt
+*.gguf
+
+# --- Docker / PostgreSQL ---------------------------------------------
+# Volumes de donnees montes localement, le cas echeant.
+postgres_data/
+pgadmin_data/
+*.dump
+*.sql.bak
+
+# --- Editeurs et OS --------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
