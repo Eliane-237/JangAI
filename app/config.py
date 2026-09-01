@@ -140,10 +140,32 @@ class Settings(BaseSettings):
 
     # --- Recherche et reranking ---------------------------------------
     search_top_k: int = Field(default=30)
-    reranker_model: str = Field(default="Qwen/Qwen3-Reranker-0.6B")
     rerank_top_k: int = Field(default=8)
 
-    # Ponderations du reranking hybride, sur des signaux generiques.
+    # Reranking par cross-encoder Qwen3-Reranker : il juge la pertinence de
+    # chaque paire (question, chunk) au lieu de compter des mots communs.
+    # `use_cross_encoder=False` retombe sur la ponderation heuristique.
+    reranker_model: str = Field(default="Qwen/Qwen3-Reranker-0.6B")
+    reranker_device: str = Field(default="cpu")
+    use_cross_encoder: bool = Field(default=True)
+    # Le cross-encoder est couteux sur CPU : on ne rerank que les meilleurs
+    # candidats (par score vectoriel) pour borner le temps de reponse.
+    rerank_max_candidates: int = Field(default=20)
+    reranker_batch_size: int = Field(default=8)
+    reranker_max_length: int = Field(default=512)
+
+    # Fusion multi-signaux du reranking (inspiree d'un reranker hybride) : le
+    # cross-encoder porte le SENS, les signaux vectoriel/lexical/termes ancrent
+    # la pertinence. Chaque signal est normalise [0,1] sur les candidats, puis
+    # pondere. Ainsi un chunk fort au cross-encoder mais nul en lexical (hors
+    # matiere) est rétrograde. Total = 1.0.
+    rerank_w_cross: float = Field(default=0.55)
+    rerank_w_vector: float = Field(default=0.20)
+    rerank_w_lexical: float = Field(default=0.15)
+    rerank_w_term: float = Field(default=0.10)
+
+    # Ponderations du reranking heuristique (repli si le cross-encoder est
+    # indisponible ou desactive).
     weight_vector_score: float = Field(default=0.55)
     weight_hierarchy_match: float = Field(default=0.20)
     weight_term_density: float = Field(default=0.15)

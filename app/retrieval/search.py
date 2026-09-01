@@ -88,6 +88,18 @@ def vector_search(query_vector, top_k: int, filters=None) -> list[Candidate]:
             sql, (query_vector, *extra_params, query_vector, top_k)
         ).fetchall()
 
+        # 0 ligne est anormal des que la base contient des vecteurs : le plus
+        # souvent un filtre trop restrictif. On le signale avec les filtres en
+        # cause pour un diagnostic immediat.
+        if not rows:
+            total = connection.execute(
+                "SELECT count(*) FROM chunks WHERE embedding IS NOT NULL"
+            ).fetchone()[0]
+            logger.warning(
+                "vector_search 0 resultat ({} vecteurs en base) — filtres appliques : {}",
+                total, filters or "aucun",
+            )
+
     candidates = []
     for row in rows:
         candidate = Candidate.from_row(row[:-1])

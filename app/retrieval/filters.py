@@ -29,7 +29,11 @@ def build_filter_clause(filters: dict[str, str] | None) -> tuple[str, list]:
     clauses, params = [], []
     for key, value in filters.items():
         if key in _ALLOWED_FILTERS and value:
-            clauses.append(f"{key} = %s")
+            # Comparaison insensible aux accents ET a la casse : un filtre
+            # "Francais", "français" ou "FRANCAIS" retrouve la valeur stockee
+            # "francais", et "ls"/"LS" se rejoignent. Sans quoi un simple
+            # accent cote client renverrait zero resultat.
+            clauses.append(f"unaccent(lower({key})) = unaccent(lower(%s))")
             params.append(value)
     return (" AND " + " AND ".join(clauses) if clauses else ""), params
 

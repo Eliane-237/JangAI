@@ -1,12 +1,22 @@
 """
-Reconnaissance optique de caracteres.
+Reconnaissance optique de caracteres — moteur Tesseract.
 
-Intervient sur les pages dont l'analyse structurelle a etabli qu'elles ne
-comportent pas de couche texte exploitable : pages scannees, ou pages dont
-le texte a ete converti en courbes vectorielles.
+Ce module a deux roles complementaires :
 
-Chaine : rendu haute resolution -> pretraitement image -> Tesseract ->
-post-traitement du texte.
+    1. PILOTE l'OCR de Docling. `build_docling_ocr_options()` fournit a Docling
+       une configuration Tesseract (langues, binaire, segmentation). Docling
+       peut alors OCRiser les pages scannees AVEC son modele TableFormer, ce
+       qui reconstruit la structure des tableaux scannes — la ou un OCR a plat
+       entremelerait les colonnes. C'est le chemin principal.
+
+    2. FILET DE SECURITE autonome. `extract_text_from_pdf_page()` reste
+       disponible : rendu haute resolution -> pretraitement OpenCV ->
+       Tesseract -> post-traitement. Il rattrape les pages scannees qu'un tour
+       Docling n'aurait pas reussi a lire, et son pretraitement (debruitage,
+       seuillage adaptatif) aide sur les scans de mauvaise qualite.
+
+Dans les deux cas, le moteur est Tesseract : un seul et meme OCR dans tout le
+projet, jamais RapidOCR.
 """
 
 from __future__ import annotations
@@ -32,6 +42,58 @@ try:
 except ImportError as exc:  # pragma: no cover
     OCR_AVAILABLE = False
     logger.warning("Dependances OCR indisponibles ({}). L'OCR sera ignore.", exc)
+
+
+# ======================================================================
+# Configuration Tesseract pour Docling (chemin principal)
+# ======================================================================
+
+
+def _tesseract_langs() -> list[str]:
+    """Langues Tesseract, tirees de la configuration ("fra+eng" -> [fra, eng])."""
+    raw = get_settings().ocr_languages.replace("+", " ").split()
+    return [code for code in raw if code] or ["fra", "eng"]
+
+
+def build_docling_ocr_options():
+    """Construit les options OCR Tesseract passees a Docling.
+
+    C'est par ces options que Docling OCRise les pages scannees avec Tesseract,
+    puis applique TableFormer pour en reconstruire les tableaux. `force_full_page_ocr`
+    reste a False : Docling saute alors l'OCR sur les pages qui ont deja une
+    couche texte, et ne le declenche que la ou il manque.
+
+    Returns:
+        Une instance `TesseractCliOcrOptions` prete pour `PdfPipelineOptions`
+
+    Raises:
+        ImportError: Si Docling n'est pas installe
+    """
+    from docling.datamodel.pipeline_options import TesseractCliOcrOptions
+
+    settings = get_settings()
+    options = TesseractCliOcrOptions(
+        lang=_tesseract_langs(),
+        force_full_page_ocr=False,
+    )
+    # Chemin explicite vers le binaire tesseract, si renseigne dans .env.
+    if settings.tesseract_cmd:
+        options.tesseract_cmd = settings.tesseract_cmd
+    return options
+
+
+def tesseract_available() -> bool:
+    """Indique si le binaire Tesseract est joignable (pour le filet de securite)."""
+    if not OCR_AVAILABLE:
+        return False
+    settings = get_settings()
+    if settings.tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+    try:
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
 
 
 # ======================================================================

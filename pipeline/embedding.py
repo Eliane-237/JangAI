@@ -13,6 +13,7 @@ methodes distinctes plutot qu'une fonction generique.
 
 from __future__ import annotations
 
+import time
 from functools import lru_cache
 
 import numpy as np
@@ -52,7 +53,12 @@ class EmbeddingService:
                 self._settings.embedding_model,
                 device=self._settings.embedding_device,
             )
-            dimension = self._model.get_sentence_embedding_dimension()
+            # `get_sentence_embedding_dimension` est deprecie ; on prend le nom
+            # recent s'il existe, l'ancien sinon.
+            if hasattr(self._model, "get_embedding_dimension"):
+                dimension = self._model.get_embedding_dimension()
+            else:
+                dimension = self._model.get_sentence_embedding_dimension()
             if dimension != self._settings.embedding_dim:
                 raise ValueError(
                     f"Le modele produit {dimension} dimensions alors que la "
@@ -62,11 +68,30 @@ class EmbeddingService:
             logger.info("Modele charge ({} dimensions)", dimension)
         return self._model
 
-    def generate_embeddings(self, texts: list[str]) -> np.ndarray:
-        """Encode une liste de textes bruts.
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        """Encode un lot, sans journalisation."""
+        vectors = self.model.encode(
+            texts,
+            batch_size=self._settings.embedding_batch_size,
+            normalize_embeddings=self._settings.embedding_normalize,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        return np.asarray(vectors, dtype=np.float32)
+
+    def generate_embeddings(
+        self, texts: list[str], describe: str = "textes"
+    ) -> np.ndarray:
+        """Encode une liste de textes bruts, avec journalisation detaillee.
+
+        Le travail est fait lot par lot pour rendre la vectorisation visible :
+        chaque lot est trace (taille, duree, debit), et les proprietes des
+        vecteurs produits (dimension, norme, plage de valeurs) sont resumees.
+        Un texte isole (cas d'une requete) est encode silencieusement.
 
         Args:
             texts: Textes a vectoriser
+            describe: Libelle des elements, pour les logs ("chunks", "textes")
 
         Returns:
             Matrice de vecteurs, une ligne par texte
@@ -74,14 +99,55 @@ class EmbeddingService:
         if not texts:
             return np.empty((0, self._settings.embedding_dim), dtype=np.float32)
 
-        vectors = self.model.encode(
-            texts,
-            batch_size=self._settings.embedding_batch_size,
-            normalize_embeddings=self._settings.embedding_normalize,
-            show_progress_bar=len(texts) > 200,
-            convert_to_numpy=True,
+        # Cas d'une requete unique : pas de bruit dans les logs.
+        if len(texts) == 1:
+            vector = self._encode(texts)
+            logger.debug(
+                "Requete vectorisee | dim {} | norme {:.3f}",
+                vector.shape[1], float(np.linalg.norm(vector[0])),
+            )
+            return vector
+
+        settings = self._settings
+        batch_size = settings.embedding_batch_size
+        total = len(texts)
+        batches = (total + batch_size - 1) // batch_size
+        logger.info(
+            "Vectorisation de {} {} | modele {} | device {} | batch {} | normalize {}",
+            total, describe, settings.embedding_model, settings.embedding_device,
+            batch_size, settings.embedding_normalize,
         )
-        return vectors.astype(np.float32)
+
+        parts: list[np.ndarray] = []
+        done = 0
+        started = time.perf_counter()
+        for index in range(batches):
+            start = index * batch_size
+            batch = texts[start : start + batch_size]
+            t0 = time.perf_counter()
+            parts.append(self._encode(batch))
+            done += len(batch)
+            elapsed = time.perf_counter() - started
+            logger.info(
+                "  lot {}/{} : {} vecteurs en {:.1f}s  (cumul {}/{}, ~{:.1f} chunks/s)",
+                index + 1, batches, len(batch), time.perf_counter() - t0,
+                done, total, done / elapsed if elapsed else 0.0,
+            )
+
+        vectors = np.vstack(parts).astype(np.float32)
+        norms = np.linalg.norm(vectors, axis=1)
+        logger.info(
+            "{} vecteurs | dim {} | norme moy {:.3f} (min {:.3f}, max {:.3f}) | "
+            "valeurs [{:.3f}, {:.3f}] | {:.1f}s",
+            len(vectors), vectors.shape[1], float(norms.mean()),
+            float(norms.min()), float(norms.max()),
+            float(vectors.min()), float(vectors.max()),
+            time.perf_counter() - started,
+        )
+        logger.debug(
+            "Echantillon vecteur[0][:8] = {}", np.round(vectors[0][:8], 4).tolist()
+        )
+        return vectors
 
     def embed_documents(self, documents: list[Document]) -> np.ndarray:
         """Encode des chunks.
@@ -97,7 +163,9 @@ class EmbeddingService:
         Returns:
             Matrice de vecteurs
         """
-        return self.generate_embeddings([d.contextualized_text() for d in documents])
+        return self.generate_embeddings(
+            [d.contextualized_text() for d in documents], describe="chunks"
+        )
 
     def embed_query(self, query: str) -> np.ndarray:
         """Encode une requete, precedee de son instruction.
