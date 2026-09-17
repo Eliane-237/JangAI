@@ -41,3 +41,25 @@ class QueryRequest(BaseModel):
             }.items()
             if value and value.strip().lower() not in _IGNORED_FILTER_VALUES
         }
+
+
+class ChatRequest(BaseModel):
+    """Requete de l'agent (/chat).
+
+    L'agent detecte lui-meme les facettes (matiere, niveau...) dans la
+    question : pas de filtres a fournir. `thread_id` servira a la memoire
+    multi-tour (phase ulterieure).
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "question": "Quels sont les objectifs de lecture en francais en terminale ?"
+            }
+        }
+    }
+
+    question: str = Field(..., min_length=3, description="Question de l'utilisateur")
+    thread_id: str | None = Field(
+        default=None, description="Identifiant de conversation (memoire, a venir)"
+    )

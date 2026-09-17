@@ -10,6 +10,7 @@
 *.pem
 *.key
 secrets/
+conftest.py
 
 # --- Environnements virtuels Python ----------------------------------
 .venv/
@@ -32,6 +33,7 @@ build/
 dist/
 .coverage
 htmlcov/
+evaluation/
 
 # --- Donnees (corpus, sorties du pipeline) ---------------------------
 # Les PDF sources et tout ce que le pipeline genere ne vont pas sur git.
@@ -41,9 +43,12 @@ data/intermediate/
 data/intermediaire/
 data/ocr_cache/
 data/cache_ocr/
+data/eval/
 *.pdf
 # Conserver la structure des dossiers si besoin :
 !data/**/.gitkeep
+
+tests 
 
 # --- Journaux --------------------------------------------------------
 logs/

@@ -32,6 +32,7 @@ from app.models import (
     compute_content_hash,
     generate_chunk_id,
 )
+from pipeline.preprocessor import repair_encoding
 
 # Labels Docling designant une table et une liste.
 _TABLE_LABEL = "table"
@@ -108,7 +109,7 @@ def _hierarchy(chunk) -> Hierarchy:
     headings = getattr(chunk.meta, "headings", None) or []
     return Hierarchy(
         levels=[
-            HierarchyLevel(title=title, depth=depth)
+            HierarchyLevel(title=repair_encoding(title), depth=depth)
             for depth, title in enumerate(headings)
         ]
     )
@@ -167,7 +168,9 @@ def chunk_document(
     order = 0
 
     for chunk in chunker.chunk(doc):
-        content = (chunk.text or "").strip()
+        # Reparation du mojibake (PDF a police Mac Roman) : sans effet sur les
+        # documents sains, elle corrige les accents des PDF concernes (Maths).
+        content = repair_encoding(chunk.text or "").strip()
         if len(content) < settings.chunk_min_size:
             continue
 

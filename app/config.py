@@ -208,6 +208,8 @@ class Settings(BaseSettings):
     # Reconnaissance de structure par TableFormer (Docling). Resout les
     # cellules fusionnees et marque les en-tetes.
     docling_table_structure: bool = Field(default=True)
+    docling_device: str = Field(default="auto")
+    docling_num_threads: int = Field(default=8)
 
     # --- OCR ----------------------------------------------------------
     tesseract_cmd: str | None = Field(default=None)
@@ -229,6 +231,11 @@ class Settings(BaseSettings):
     groq_temperature: float = Field(default=0.2)
     groq_max_tokens: int = Field(default=1500)
     max_context_chars: int = Field(default=8000)
+
+    # --- Serveur ------------------------------------------------------
+    # Precharge embedding + reranker au demarrage du serveur, pour que la
+    # premiere question n'attende pas le chargement des modeles.
+    warmup_models: bool = Field(default=True)
 
     # --- Divers -------------------------------------------------------
     log_level: str = Field(default="INFO")

@@ -5,10 +5,14 @@ Assemble les routeurs du dossier `app/routes` derriere une application FastAPI.
 
     GET  /health   etat du service et de la base
     POST /search   candidats apres recherche + reranking (debogage, sans LLM)
-    POST /ask      reponse complete generee, avec sources
+    POST /ask      reponse complete generee, avec sources (pipeline lineaire)
+    POST /chat     reponse via l'agent LangGraph (routage + recherche + gen.)
 
-Lancement :
-    uvicorn app.main:app --reload
+Lancement (usage normal, modeles gardes chauds) :
+    uvicorn app.main:app
+
+N'utiliser --reload QUE pendant le developpement : il redemarre le serveur a
+chaque sauvegarde de fichier, ce qui recharge tous les modeles.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.db import check_connection, get_statistics
-from app.routes import query, search
+from app.routes import chat, query, search
 
 app = FastAPI(
     title="JangAI",
@@ -28,6 +32,7 @@ app = FastAPI(
 
 app.include_router(query.router)
 app.include_router(search.router)
+app.include_router(chat.router)
 
 
 @app.on_event("startup")
@@ -64,6 +69,39 @@ def _log_database_state() -> None:
         logger.warning(
             "La base est vide cote API. Si vous venez de (re)creer le conteneur "
             "Postgres, relancez ce serveur pour rafraichir le pool de connexions."
+        )
+
+
+@app.on_event("startup")
+def _warmup_models() -> None:
+    """Precharge les modeles lourds AVANT la premiere requete.
+
+    Sans cela, l'embedding et le reranker se chargent paresseusement a la
+    premiere question, qui paie alors ~10 s d'attente. En les chargeant au
+    demarrage, chaque requete demarre immediatement.
+    """
+    if not get_settings().warmup_models:
+        return
+    import time
+
+    started = time.perf_counter()
+    try:
+        from app.retrieval.reranker import get_cross_encoder
+        from pipeline.embedding import get_embedding_service
+
+        get_embedding_service().embed_query("prechauffage")
+        reranker = get_cross_encoder()
+        if reranker is not None:
+            reranker.score("prechauffage", ["prechauffage"])
+        logger.info(
+            "Modeles prechauffes en {:.1f}s (embedding + reranker) : "
+            "requetes immediates.",
+            time.perf_counter() - started,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Prechauffage des modeles incomplet ({}) : ils se chargeront a la "
+            "premiere requete.", exc,
         )
 
 

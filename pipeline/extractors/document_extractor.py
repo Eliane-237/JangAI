@@ -76,6 +76,7 @@ def get_converter(with_ocr: bool):
     Returns:
         Le `DocumentConverter` configure
     """
+    from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -87,10 +88,15 @@ def get_converter(with_ocr: bool):
         pipeline_options.ocr_options = build_docling_ocr_options()
     pipeline_options.do_table_structure = settings.docling_table_structure
     pipeline_options.table_structure_options.do_cell_matching = True
+    # Les modeles Docling (mise en page + TableFormer) sur GPU si disponible.
+    pipeline_options.accelerator_options = AcceleratorOptions(
+        device=settings.docling_device, num_threads=settings.docling_num_threads
+    )
 
     logger.info(
-        "Chargement du convertisseur Docling (TableFormer{})",
+        "Chargement du convertisseur Docling (TableFormer{}, device {})",
         " + OCR Tesseract" if with_ocr else ", sans OCR — document natif",
+        settings.docling_device,
     )
     return DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}

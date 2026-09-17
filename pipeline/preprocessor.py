@@ -60,6 +60,46 @@ def analyze_document_language(text: str) -> str:
     en_score = sum(counts[w] for w in _EN_WORDS)
     return "en" if en_score > fr_score else "fr"
 
+
+# ======================================================================
+# Reparation d'encodage (mojibake)
+# ======================================================================
+
+# Certains PDF encodent leurs lettres accentuees avec une police Mac Roman
+# lue ensuite comme du CP1252 : "é" devient "Ž", "•" devient "¥", etc. La
+# substitution est SYSTEMATIQUE, donc reparable par table. Les SYMBOLES
+# mathematiques (∫, ≤, ∑, α, →...), eux, sont correctement extraits : la
+# table ne les touche pas.
+_MOJIBAKE_MAP = {
+    "Ž": "é", "¥": "•", "ˆ": "à", "ƒ": "É", "Õ": "'",
+    "™": "ô", "”": "î", "‘": "ë",
+}
+
+# Caracteres dont la seule presence trahit un texte en mojibake : ils
+# n'apparaissent jamais legitimement dans un texte francais. La reparation
+# n'est appliquee QU'A un texte qui en contient : un document sain (avec ses
+# vrais guillemets « », œ...) n'est donc jamais modifie.
+_MOJIBAKE_MARKERS = ("Ž", "¥", "ƒ", "ˆ", "Õ")
+
+
+def repair_encoding(text: str) -> str:
+    """Repare un texte victime du mojibake Mac Roman -> CP1252.
+
+    Ne fait rien si le texte ne porte aucune signature de mojibake : les
+    documents sains passent inchanges. Sur un texte corrompu, chaque caractere
+    parasite est remplace par la lettre accentuee qu'il represente.
+
+    Args:
+        text: Texte potentiellement corrompu
+
+    Returns:
+        Texte repare, ou le texte d'origine s'il est sain
+    """
+    if not text or not any(marker in text for marker in _MOJIBAKE_MARKERS):
+        return text
+    return "".join(_MOJIBAKE_MAP.get(char, char) for char in text)
+
+
 # ======================================================================
 # Nettoyage du texte
 # ======================================================================
