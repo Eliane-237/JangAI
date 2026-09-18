@@ -47,8 +47,9 @@ class ChatRequest(BaseModel):
     """Requete de l'agent (/chat).
 
     L'agent detecte lui-meme les facettes (matiere, niveau...) dans la
-    question : pas de filtres a fournir. `thread_id` servira a la memoire
-    multi-tour (phase ulterieure).
+    question : pas de filtres a fournir. `thread_id` porte la MEMOIRE
+    multi-tour : laissez-le vide au premier message (l'agent en cree un et le
+    renvoie), puis renvoyez le meme aux tours suivants pour garder le fil.
     """
 
     model_config = {
@@ -61,5 +62,7 @@ class ChatRequest(BaseModel):
 
     question: str = Field(..., min_length=3, description="Question de l'utilisateur")
     thread_id: str | None = Field(
-        default=None, description="Identifiant de conversation (memoire, a venir)"
+        default=None,
+        description="Identifiant de conversation. Vide au 1er message ; renvoyez "
+        "celui recu pour conserver la memoire.",
     )

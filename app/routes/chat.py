@@ -19,9 +19,13 @@ router = APIRouter(tags=["chat"])
 
 @router.post("/chat")
 def chat(request: ChatRequest) -> dict:
-    """Repond a une question via l'agent (routage + recherche + generation)."""
+    """Repond a une question via l'agent (memoire + routage + recherche + gen.).
+
+    Renvoie un `thread_id` : renvoyez-le au tour suivant pour conserver le fil
+    de la conversation (l'agent resout alors « tout ca », « et pour... », etc.).
+    """
     try:
-        return run_agent(request.question)
+        return run_agent(request.question, request.thread_id)
     except RuntimeError as exc:
         # Cle Groq absente : configuration incomplete, pas une erreur serveur.
         raise HTTPException(status_code=503, detail=str(exc)) from exc

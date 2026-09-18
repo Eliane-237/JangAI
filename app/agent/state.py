@@ -19,6 +19,13 @@ from typing import Any, TypedDict
 class AgentState(TypedDict, total=False):
     # -- Entree --------------------------------------------------------
     question: str
+    # Identifiant de conversation : porte la memoire multi-tour.
+    thread_id: str
+
+    # -- Contextualisation ---------------------------------------------
+    # Question de suivi reecrite en question AUTONOME grace a l'historique.
+    # C'est elle qui alimente le routage et la recherche.
+    standalone_question: str
 
     # -- Routage (facettes detectees dans la question) -----------------
     # Generique : subject, level, track, et demain document_type, annee...

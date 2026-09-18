@@ -237,6 +237,12 @@ class Settings(BaseSettings):
     # premiere question n'attende pas le chargement des modeles.
     warmup_models: bool = Field(default=True)
 
+    # --- Memoire conversationnelle (/chat) ----------------------------
+    # Nombre de tours precedents conserves par conversation, et nombre max de
+    # conversations gardees en memoire (les plus anciennes sont evincees).
+    conversation_max_turns: int = Field(default=6)
+    conversation_max_threads: int = Field(default=500)
+
     # --- Divers -------------------------------------------------------
     log_level: str = Field(default="INFO")
 

@@ -10,12 +10,59 @@ page.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from loguru import logger
 
 from app.config import get_settings
 from app.prompts.templates import SYSTEM_PROMPT, build_user_prompt
 from app.retrieval.search import Candidate
+
+
+@lru_cache(maxsize=1)
+def _client():
+    """Client Groq unique par processus."""
+    from groq import Groq
+
+    return Groq(api_key=get_settings().groq_api_key)
+
+
+def complete(
+    system: str,
+    user: str,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> str:
+    """Un aller-retour au LLM Groq, reutilisable (generation, reformulation...).
+
+    Args:
+        system: Message systeme
+        user: Message utilisateur
+        temperature: Temperature (defaut : celle de la config)
+        max_tokens: Plafond de tokens (defaut : celui de la config)
+
+    Returns:
+        Le texte de la reponse
+
+    Raises:
+        RuntimeError: Si la cle Groq est absente
+    """
+    settings = get_settings()
+    if not settings.groq_api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY absente : renseignez-la dans .env pour activer le LLM."
+        )
+    completion = _client().chat.completions.create(
+        model=settings.groq_model,
+        temperature=settings.groq_temperature if temperature is None else temperature,
+        max_tokens=settings.groq_max_tokens if max_tokens is None else max_tokens,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    return (completion.choices[0].message.content or "").strip()
 
 
 @dataclass
@@ -87,12 +134,19 @@ def build_context(candidates: list[Candidate], max_chars: int) -> tuple[str, lis
     return "\n\n".join(blocks), sources
 
 
-def generate_answer(query: str, candidates: list[Candidate]) -> Answer:
+def generate_answer(
+    query: str,
+    candidates: list[Candidate],
+    history: list[dict] | None = None,
+) -> Answer:
     """Genere la reponse a partir des extraits retenus.
 
     Args:
         query: Question de l'utilisateur
         candidates: Candidats retenus apres reranking
+        history: Tours precedents [{question, answer}], pour la coherence
+            conversationnelle. Les extraits restent la seule source de verite ;
+            l'historique ne sert qu'a lever les references ("ca", "et pour...").
 
     Returns:
         La reponse et ses sources
@@ -113,18 +167,22 @@ def generate_answer(query: str, candidates: list[Candidate]) -> Answer:
             sources=[],
         )
 
-    from groq import Groq
+    # Historique compact avant la question courante, pour que le modele
+    # comprenne les references sans perdre l'ancrage sur les extraits.
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for turn in history or []:
+        if turn.get("question"):
+            messages.append({"role": "user", "content": turn["question"]})
+        if turn.get("answer"):
+            messages.append({"role": "assistant", "content": turn["answer"]})
+    messages.append({"role": "user", "content": build_user_prompt(context, query)})
 
-    client = Groq(api_key=settings.groq_api_key)
-    completion = client.chat.completions.create(
+    completion = _client().chat.completions.create(
         model=settings.groq_model,
         temperature=settings.groq_temperature,
         max_tokens=settings.groq_max_tokens,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(context, query)},
-        ],
+        messages=messages,
     )
-    text = completion.choices[0].message.content.strip()
+    text = (completion.choices[0].message.content or "").strip()
     logger.info("Reponse generee ({} caracteres, {} sources)", len(text), len(sources))
     return Answer(text=text, sources=sources)
