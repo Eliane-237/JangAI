@@ -52,6 +52,89 @@ def _facet_values() -> dict[str, set[str]]:
     return values
 
 
+# Synonymes de matiere : le LLM (ou l'utilisateur) ecrit « mathematiques »,
+# la base stocke « maths ». On rabat ces variantes sur une forme pivot avant
+# de la confronter aux valeurs reelles de la base. Cle et valeur SANS accents.
+_SUBJECT_SYNONYMS = {
+    "mathematiques": "maths",
+    "mathematique": "maths",
+    "math": "maths",
+    "maths": "maths",
+    "francais": "francais",
+    "lettres": "francais",
+    "philo": "philosophie",
+}
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    """Longueur du prefixe commun a deux chaines."""
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    return n
+
+
+def _match_db_value(column: str, value: str, db_values: set[str]) -> str | None:
+    """Rabat une valeur demandee sur la valeur REELLE de la base, ou None.
+
+    Strategie, du plus sur au plus tolerant : synonyme connu, egalite,
+    inclusion (prefixe dans un sens ou l'autre : « maths »/« mathematiques »),
+    puis prefixe commun d'au moins 4 lettres. Aucun rapprochement -> None :
+    l'appelant laissera alors tomber le filtre plutot que de vider la recherche.
+    """
+    v = _strip(value)
+    if column == "subject":
+        v = _SUBJECT_SYNONYMS.get(v, v)
+    stripped = {d: _strip(d) for d in db_values}
+    for original, d in stripped.items():
+        if d == v:
+            return original
+    for original, d in stripped.items():
+        if d.startswith(v) or v.startswith(d):
+            return original
+    for original, d in stripped.items():
+        if len(v) >= 4 and len(d) >= 4 and _common_prefix_len(d, v) >= 4:
+            return original
+    return None
+
+
+def canonicalize_filters(filters: dict[str, str] | None) -> dict[str, str]:
+    """Aligne des filtres demandes sur les valeurs reelles des facettes en base.
+
+    Indispensable cote agent : le LLM ecrit « mathematiques » / « terminale L »,
+    la base stocke « maths » / « terminale ». Sans cet alignement, le filtre
+    exact ne rapporte RIEN. Une facette qui ne correspond a aucune valeur connue
+    est retiree (recherche elargie), jamais conservee telle quelle.
+
+    Args:
+        filters: Filtres proposes (par l'agent ou le client)
+
+    Returns:
+        Filtres alignes sur la base ; les facettes sans correspondance sont omises
+    """
+    if not filters:
+        return {}
+    facets = _facet_values()
+    aligned: dict[str, str] = {}
+    for column, value in filters.items():
+        if not value:
+            continue
+        db_values = facets.get(column)
+        if not db_values:
+            logger.info("Filtre {}='{}' : facette inconnue -> ignore.", column, value)
+            continue
+        match = _match_db_value(column, value, db_values)
+        if match:
+            if _strip(match) != _strip(value):
+                logger.info("Filtre {} : '{}' -> '{}' (valeur en base).", column, value, match)
+            aligned[column] = match
+        else:
+            logger.info("Filtre {}='{}' sans equivalent en base -> ignore.", column, value)
+    return aligned
+
+
 def detect_filters(question: str) -> dict[str, str]:
     """Detecte les facettes nommees dans la question.
 

@@ -1,15 +1,15 @@
 """
-Graphe de l'agent RAG (LangGraph).
+Graphe de l'agent RAG (LangGraph), architecture AGENTIQUE a outils.
 
-Flux LINEAIRE, desormais conversationnel :
+    START -> agent  --(le LLM demande l'outil ?)-->  tools  --> agent
+                |                                                  |
+                +--(non : reponse prete)--> END <-----------------+
 
-    START -> contextualize -> route -> retrieve -> generate -> END
-
-`contextualize` reecrit la question de suivi en question autonome grace a la
-memoire de la conversation (thread_id), `route` detecte les facettes, `retrieve`
-cherche + rerank en les filtrant, `generate` produit la reponse citee et
-enregistre le tour. La boucle corrective (grade -> reformuler -> re-chercher)
-s'inserera en phase 2 : l'etat et les noeuds actuels restent inchanges.
+Le noeud `agent` (le LLM) decide lui-meme : bavarder, ou appeler l'outil
+`chercher_programme`. C'est cette decision qui remplace l'ancien aiguillage
+code a la main (contextualize -> route -> retrieve). L'agent peut chercher
+PLUSIEURS fois avant de conclure (questions complexes / multi-matieres), puis
+`generate` disparait : la reponse finale est produite par l'agent lui-meme.
 """
 
 from __future__ import annotations
@@ -18,12 +18,7 @@ from functools import lru_cache
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.nodes import (
-    contextualize_node,
-    generate_node,
-    retrieve_node,
-    route_node,
-)
+from app.agent.nodes import agent_node, should_continue, tools_node
 from app.agent.state import AgentState
 from app.services import conversation
 
@@ -31,16 +26,14 @@ from app.services import conversation
 def build_graph():
     """Construit et compile le graphe de l'agent."""
     builder = StateGraph(AgentState)
-    builder.add_node("contextualize", contextualize_node)
-    builder.add_node("route", route_node)
-    builder.add_node("retrieve", retrieve_node)
-    builder.add_node("generate", generate_node)
+    builder.add_node("agent", agent_node)
+    builder.add_node("tools", tools_node)
 
-    builder.add_edge(START, "contextualize")
-    builder.add_edge("contextualize", "route")
-    builder.add_edge("route", "retrieve")
-    builder.add_edge("retrieve", "generate")
-    builder.add_edge("generate", END)
+    builder.add_edge(START, "agent")
+    # Apres l'agent : soit executer les outils demandes, soit terminer.
+    builder.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+    # Apres les outils : retour a l'agent pour exploiter les extraits.
+    builder.add_edge("tools", "agent")
 
     return builder.compile()
 

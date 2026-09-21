@@ -65,6 +65,52 @@ def complete(
     return (completion.choices[0].message.content or "").strip()
 
 
+def chat_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    tool_choice: str = "auto",
+):
+    """Un tour de LLM AVEC outils : renvoie le message brut (contenu OU appels).
+
+    Contrairement a `complete`, ce helper expose les `tool_calls` : c'est le
+    LLM qui decide d'appeler un outil (ex. la recherche) ou de repondre
+    directement. La boucle agent <-> outils est orchestree par l'appelant.
+
+    Args:
+        messages: Historique complet du tour (system, user, assistant, tool...)
+        tools: Schemas des outils au format OpenAI/Groq
+        tool_choice: "auto" (le LLM decide) ou "none" (reponse forcee, sans outil)
+
+    Returns:
+        L'objet message de la reponse (`.content` et/ou `.tool_calls`)
+
+    Raises:
+        RuntimeError: Si la cle Groq est absente
+    """
+    settings = get_settings()
+    if not settings.groq_api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY absente : renseignez-la dans .env pour activer l'agent."
+        )
+    params: dict = {
+        "model": settings.groq_model,
+        "temperature": settings.groq_temperature if temperature is None else temperature,
+        "max_tokens": settings.groq_max_tokens if max_tokens is None else max_tokens,
+        "messages": messages,
+    }
+    # tool_choice="none" : on N'ENVOIE PAS les outils. Certains modeles (gpt-oss)
+    # ignorent "none" et appellent quand meme un outil, ce que Groq rejette
+    # (400). Retirer les outils rend l'appel impossible : le modele conclut.
+    if tool_choice != "none":
+        params["tools"] = tools
+        params["tool_choice"] = tool_choice
+    completion = _client().chat.completions.create(**params)
+    return completion.choices[0].message
+
+
 @dataclass
 class Source:
     """Une source citee dans la reponse."""
@@ -96,12 +142,17 @@ class Answer:
         return {"answer": self.text, "sources": [s.to_dict() for s in self.sources]}
 
 
-def build_context(candidates: list[Candidate], max_chars: int) -> tuple[str, list[Source]]:
+def build_context(
+    candidates: list[Candidate], max_chars: int, start_index: int = 1
+) -> tuple[str, list[Source]]:
     """Assemble le contexte numerote et la liste des sources.
 
     Args:
         candidates: Candidats retenus, deja ordonnes
         max_chars: Budget de caracteres pour le contexte
+        start_index: Numero du premier extrait. Permet a l'agent d'enchainer
+            plusieurs recherches en gardant des index de sources DISTINCTS
+            (la 2e recherche continue la numerotation de la 1re, sans collision).
 
     Returns:
         Tuple (contexte textuel, sources)
@@ -110,7 +161,7 @@ def build_context(candidates: list[Candidate], max_chars: int) -> tuple[str, lis
     sources: list[Source] = []
     used = 0
 
-    for index, candidate in enumerate(candidates, start=1):
+    for index, candidate in enumerate(candidates, start=start_index):
         header = candidate.hierarchy_text()
         location = f"{candidate.source_file}, p.{candidate.page_number or '?'}"
         prefix = f"[{index}] ({location}"

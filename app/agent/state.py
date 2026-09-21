@@ -3,9 +3,12 @@ Etat partage de l'agent LangGraph.
 
 C'est la colonne vertebrale du graphe : un dictionnaire type qui circule d'un
 noeud a l'autre. Chaque noeud recoit l'etat courant et renvoie une mise a jour
-PARTIELLE (LangGraph fusionne). On garde ici les champs de la phase 1 (routage,
-recherche, generation) ; les champs agentiques (grade, retries, sous-requetes,
-historique) seront ajoutes avec la boucle corrective.
+PARTIELLE (LangGraph fusionne).
+
+Le graphe est AGENTIQUE : le noeud `agent` (le LLM) decide d'appeler l'outil de
+recherche ou de repondre. `messages` porte le dialogue interne du tour (system,
+user, assistant, tool), `pending` les appels d'outils a executer, `sources` les
+extraits cumules pour les citations.
 
 `total=False` : tous les champs sont optionnels — un noeud n'a pas a tous les
 remplir, il ajoute seulement ce qu'il produit.
@@ -22,18 +25,19 @@ class AgentState(TypedDict, total=False):
     # Identifiant de conversation : porte la memoire multi-tour.
     thread_id: str
 
-    # -- Contextualisation ---------------------------------------------
-    # Question de suivi reecrite en question AUTONOME grace a l'historique.
-    # C'est elle qui alimente le routage et la recherche.
-    standalone_question: str
+    # -- Boucle agent <-> outils ---------------------------------------
+    # Dialogue interne du tour (system, user, assistant, tool), reinjecte a
+    # chaque tour de LLM. C'est la memoire de travail de l'agent.
+    messages: list[dict[str, Any]]
+    # Appels d'outils demandes par le LLM et pas encore executes.
+    pending: list[dict[str, Any]]
 
-    # -- Routage (facettes detectees dans la question) -----------------
-    # Generique : subject, level, track, et demain document_type, annee...
+    # -- Facettes / recherche ------------------------------------------
+    # Dernieres facettes effectives (matiere, niveau...) choisies par l'agent,
+    # conservees pour la continuite conversationnelle.
     filters: dict[str, str]
 
-    # -- Recherche -----------------------------------------------------
-    candidates: list[Any]        # list[app.retrieval.search.Candidate]
-
-    # -- Generation ----------------------------------------------------
-    answer: str
+    # -- Sortie --------------------------------------------------------
+    # Sources cumulees sur l'ensemble des recherches du tour (citations [n]).
     sources: list[dict[str, Any]]
+    answer: str

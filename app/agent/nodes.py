@@ -1,76 +1,158 @@
 """
-Noeuds de l'agent LangGraph.
+Noeuds de l'agent LangGraph (architecture a outils).
 
-Chaque noeud est une fonction `(state) -> mise a jour de l'etat`. Ils sont
-volontairement MINCES : ils ne font que brancher les briques deja eprouvees de
-JangAI (memoire, routage, recherche hybride + rerank, generation). LangGraph
-orchestre l'enchainement ; la logique metier reste dans `app.services` /
-`app.retrieval`.
+Le LLM est un AGENT : il decide lui-meme d'appeler l'outil de recherche ou de
+repondre directement. Deux noeuds suffisent, relies par une boucle :
+
+    agent  --(le LLM demande l'outil ?)-->  tools  --> agent
+      |                                                   |
+      +--(non : reponse prete)--> END <-------------------+
+
+`agent` fait parler le LLM (avec l'outil disponible) ; `tools` execute les
+recherches demandees et renvoie les extraits ; on reboucle jusqu'a ce que le
+LLM produise sa reponse finale. Le bavardage (« bonjour », « merci ») ne
+declenche aucun appel d'outil : l'agent repond en un seul tour.
 """
 
 from __future__ import annotations
 
+from langgraph.graph import END
 from loguru import logger
 
 from app.agent.state import AgentState
+from app.agent.tools import TOOLS, execute_search
+from app.prompts.templates import AGENT_SYSTEM_PROMPT
 from app.services import conversation
-from app.services.generator import generate_answer
-from app.services.query_router import detect_filters
-from app.services.rag_pipeline import retrieve as pipeline_retrieve
+from app.services.generator import chat_with_tools, complete
+
+# Garde-fou : nombre maximum de rondes d'outils par tour. Au-dela, on force le
+# LLM a conclure (tool_choice="none") pour eviter toute boucle infinie.
+MAX_TOOL_ROUNDS = 4
 
 
-def contextualize_node(state: AgentState) -> dict:
-    """Reecrit la question de suivi en question autonome via l'historique.
-
-    Sans historique (1er tour), la question est renvoyee telle quelle. C'est
-    cette question autonome qui alimentera le routage et la recherche : les   
-    references du type « tout ca » sont ainsi resolues AVANT la recherche.
-    """
-    standalone = conversation.contextualize(state.get("thread_id"), state["question"])
-    return {"standalone_question": standalone}
-
-
-def _query(state: AgentState) -> str:
-    """Question a utiliser pour router et chercher : l'autonome si disponible."""
-    return state.get("standalone_question") or state["question"]
+def _initial_messages(state: AgentState) -> list[dict]:
+    """Amorce le dialogue interne : persona + historique + question du tour."""
+    messages: list[dict] = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+    for turn in conversation.history_as_messages(state.get("thread_id")):
+        if turn.get("question"):
+            messages.append({"role": "user", "content": turn["question"]})
+        if turn.get("answer"):
+            messages.append({"role": "assistant", "content": turn["answer"]})
+    messages.append({"role": "user", "content": state["question"]})
+    return messages
 
 
-def route_node(state: AgentState) -> dict:
-    """Detecte les facettes sur la question autonome, avec heritage du contexte.
-
-    Si le suivi ne nomme aucune matiere (« et le chapitre 1 ? »), on herite des
-    facettes du tour precedent : la recherche reste sur la meme matiere plutot
-    que de partir a la derive.
-    """
-    detected = detect_filters(_query(state))
-    if not detected:
-        inherited = conversation.last_filters(state.get("thread_id"))
-        if inherited:
-            logger.info("Routage : facettes heritees du contexte {}", inherited)
-            detected = inherited
-    return {"filters": detected}
-
-
-def retrieve_node(state: AgentState) -> dict:
-    """Recherche hybride + reranking, filtree par les facettes detectees."""
-    filters = state.get("filters") or None
-    candidates = pipeline_retrieve(_query(state), filters=filters)
-    logger.info("Agent : {} extraits retenus", len(candidates))
-    return {"candidates": candidates}
+def _assistant_to_dict(message) -> dict:
+    """Serialise le message de l'assistant (avec ses eventuels appels d'outils)."""
+    payload: dict = {"role": "assistant", "content": message.content or ""}
+    if message.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.function.name,
+                    "arguments": call.function.arguments,
+                },
+            }
+            for call in message.tool_calls
+        ]
+    return payload
 
 
-def generate_node(state: AgentState) -> dict:
-    """Genere la reponse citee, en tenant compte de l'historique, puis
-    enregistre le tour dans la memoire de la conversation."""
-    thread_id = state.get("thread_id")
-    history = conversation.history_as_messages(thread_id)
-    # On genere sur la question ORIGINALE (ce que l'utilisateur a ecrit),
-    # l'historique levant les references ; la recherche, elle, a utilise la
-    # question autonome.
-    answer = generate_answer(
-        state["question"], state.get("candidates") or [], history=history
-    )
+def _finalize(state: AgentState, messages: list[dict], answer: str) -> dict:
+    """Cloture le tour : memorise la conversation et renvoie la reponse."""
+    answer = (answer or "").strip()
     conversation.record_turn(
-        thread_id, state["question"], answer.text, filters=state.get("filters")
+        state.get("thread_id"), state["question"], answer, filters=state.get("filters")
     )
-    return {"answer": answer.text, "sources": [s.to_dict() for s in answer.sources]}
+    logger.info("Agent : reponse finale ({} caracteres)", len(answer))
+    return {"messages": messages, "pending": [], "answer": answer}
+
+
+def _conclude_without_tools(state: AgentState, messages: list[dict]) -> str:
+    """Force une reponse en prose, SANS outil.
+
+    On repart d'une conversation PROPRE (sans historique d'appels d'outils, qui
+    incite gpt-oss a re-chercher indefiniment) et on inline les extraits deja
+    recuperes. Sans amorce d'outil ni parametre `tools`, le modele conclut.
+    """
+    gathered = "\n\n".join(
+        m["content"] for m in messages if m.get("role") == "tool" and m.get("content")
+    )
+    user = state["question"]
+    if gathered:
+        user += (
+            "\n\n(Reponds maintenant naturellement, en prose, a partir des "
+            "extraits ci-dessous, sans chercher davantage et sans afficher de "
+            "numeros de source. Signale honnetement ce qui manque.)"
+            f"\n\n{gathered}"
+        )
+    else:
+        user += (
+            "\n\n(Aucun extrait pertinent n'a ete trouve. Reponds honnetement que "
+            "tu n'as pas l'information dans les programmes, sans inventer.)"
+        )
+    return complete(AGENT_SYSTEM_PROMPT, user)
+
+
+def agent_node(state: AgentState) -> dict:
+    """Fait parler le LLM ; il repond, ou demande une (des) recherche(s)."""
+    messages = state.get("messages") or _initial_messages(state)
+
+    # Plafond de rondes atteint : on conclut sans outil (garde-fou anti-boucle,
+    # ex. une recherche qui reste vide et que le modele s'obstine a relancer).
+    rounds = sum(1 for m in messages if m.get("role") == "tool")
+    if rounds >= MAX_TOOL_ROUNDS:
+        logger.info("Agent : plafond d'outils atteint, conclusion forcee.")
+        return _finalize(state, messages, _conclude_without_tools(state, messages))
+
+    try:
+        message = chat_with_tools(messages, TOOLS, tool_choice="auto")
+    except Exception as exc:
+        # Ex. gpt-oss emet un appel d'outil mal forme (400 tool_use_failed) :
+        # on conclut sans outil plutot que de faire echouer le tour.
+        logger.warning("Appel d'outil en echec ({}) : conclusion sans outil.", exc)
+        return _finalize(state, messages, _conclude_without_tools(state, messages))
+
+    messages = messages + [_assistant_to_dict(message)]
+
+    if message.tool_calls:
+        pending = [
+            {"id": call.id, "arguments": call.function.arguments}
+            for call in message.tool_calls
+        ]
+        logger.info("Agent : {} recherche(s) demandee(s)", len(pending))
+        return {"messages": messages, "pending": pending}
+
+    return _finalize(state, messages, message.content)
+
+
+def tools_node(state: AgentState) -> dict:
+    """Execute les recherches demandees et renvoie les extraits au LLM."""
+    messages = list(state["messages"])
+    sources = list(state.get("sources") or [])
+    filters = dict(state.get("filters") or {})
+
+    for call in state.get("pending") or []:
+        content, new_sources, used_filters = execute_search(
+            call["arguments"], start_index=len(sources) + 1
+        )
+        sources.extend(source.to_dict() for source in new_sources)
+        if used_filters:
+            filters = used_filters
+        messages.append(
+            {"role": "tool", "tool_call_id": call["id"], "content": content}
+        )
+
+    return {
+        "messages": messages,
+        "pending": [],
+        "sources": sources,
+        "filters": filters,
+    }
+
+
+def should_continue(state: AgentState) -> str:
+    """Aiguillage : vers les outils si le LLM en a demande, sinon fin."""
+    return "tools" if state.get("pending") else END
