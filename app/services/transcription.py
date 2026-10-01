@@ -1,11 +1,6 @@
 """
 Transcription vocale (speech-to-text) locale via faster-whisper.
 
-100% open-source et LOCAL : l'audio ne quitte jamais la machine (souverainete
-des donnees). On s'appuie sur faster-whisper (CTranslate2), ~4x plus rapide que
-le Whisper d'origine a qualite egale, et capable de tourner sur le GPU a cote de
-l'embedding et du reranker.
-
 Role unique : audio -> texte. Le texte repart ensuite vers l'agent `/chat` ; la
 voix n'est qu'une PORTE D'ENTREE, elle ne modifie pas le pipeline de reponse.
 """

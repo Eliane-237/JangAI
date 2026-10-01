@@ -20,11 +20,12 @@ from app.services.generator import Source, build_context
 from app.services.query_router import canonicalize_filters
 from app.services.rag_pipeline import retrieve as pipeline_retrieve
 
-# Nom de l'outil, partage entre le schema et l'aiguillage d'execution.
+# Noms des outils, partages entre les schemas et l'aiguillage d'execution.
 SEARCH_TOOL_NAME = "chercher_programme"
+EPREUVE_TOOL_NAME = "creer_epreuve"
 
-# Schema au format OpenAI/Groq. La description guide le LLM : quand appeler
-# l'outil, et comment remplir les facettes (matiere / niveau / serie).
+# Schemas au format OpenAI/Groq. La description guide le LLM : quand appeler
+# chaque outil, et comment remplir les champs.
 TOOLS: list[dict] = [
     {
         "type": "function",
@@ -64,7 +65,36 @@ TOOLS: list[dict] = [
                 "required": ["requete"],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": EPREUVE_TOOL_NAME,
+            "description": (
+                "Genere une EPREUVE (sujet + corrige) au format Word .docx, "
+                "ancree sur le programme officiel, avec les formules en notation "
+                "mathematique. A utiliser quand l'enseignant demande de creer / "
+                "generer / preparer une epreuve, un devoir ou un sujet d'examen. "
+                "Renvoie des liens de telechargement a transmettre a l'enseignant."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matiere": {"type": "string", "description": "Matiere (ex. mathematiques)."},
+                    "niveau": {"type": "string", "description": "Niveau (ex. terminale)."},
+                    "serie": {"type": "string", "description": "Serie/filiere si precisee (ex. S, L)."},
+                    "duree": {"type": "string", "description": "Duree (ex. « 4 heures »)."},
+                    "coef": {"type": "string", "description": "Coefficient si precise."},
+                    "nb_exercices": {"type": "integer", "description": "Nombre d'exercices (defaut 3)."},
+                    "total_points": {"type": "integer", "description": "Bareme total (defaut 20)."},
+                    "difficulte": {"type": "string", "description": "Niveau de difficulte vise."},
+                    "consignes": {"type": "string", "description": "Consignes a afficher en en-tete."},
+                    "etablissement": {"type": "string", "description": "Nom de l'etablissement si fourni."},
+                },
+                "required": ["matiere", "niveau"],
+            },
+        },
+    },
 ]
 
 
@@ -118,3 +148,63 @@ def execute_search(arguments: str | dict, start_index: int) -> tuple[str, list[S
         candidates, get_settings().max_context_chars, start_index=start_index
     )
     return format_tool_results(context), sources, filters
+
+
+def execute_creer_epreuve(arguments: str | dict) -> str:
+    """Genere une epreuve + corrige et renvoie un message avec les liens.
+
+    Delegue au sous-agent `document_agent` (plan -> redaction -> rendu .docx),
+    puis renvoie au LLM les liens de telechargement a transmettre a l'enseignant.
+    """
+    # Import differe : evite de charger le sous-agent/pandoc quand on ne
+    # genere pas de document.
+    from app.agent import document_agent
+
+    args = _parse_arguments(arguments)
+    if not (args.get("matiere") and args.get("niveau")):
+        return "Impossible de generer l'epreuve : precise au moins la matiere et le niveau."
+
+    params = {
+        "matiere": args.get("matiere", ""),
+        "niveau": args.get("niveau", ""),
+        "serie": args.get("serie", ""),
+        "duree": args.get("duree", ""),
+        "coef": args.get("coef", ""),
+        "nb_exercices": args.get("nb_exercices", 3),
+        "total_points": args.get("total_points", 20),
+        "difficulte": args.get("difficulte", "standard"),
+        "consignes": args.get("consignes", ""),
+        "etablissement": args.get("etablissement", ""),
+    }
+    result = document_agent.run(params)
+    epreuve = _basename(result.get("epreuve", ""))
+    corrige = _basename(result.get("corrige", ""))
+    logger.info("Outil {} : {}", EPREUVE_TOOL_NAME, result.get("summary"))
+    return (
+        f"{result.get('summary', 'Epreuve generee.')}\n"
+        f"Transmets ces liens de telechargement a l'enseignant :\n"
+        f"- Sujet : /documents/{epreuve}\n"
+        f"- Corrige : /documents/{corrige}"
+    )
+
+
+def _basename(path: str) -> str:
+    """Nom de fichier seul (pour construire l'URL /documents/<nom>)."""
+    from pathlib import Path
+
+    return Path(path).name if path else ""
+
+
+def execute_tool(name: str, arguments: str | dict, start_index: int) -> tuple[str, list[Source], dict]:
+    """Aiguille un appel d'outil vers son executeur.
+
+    Returns:
+        (message `tool` pour le LLM, sources produites, facettes utilisees).
+        Les outils sans sources (generation de document) renvoient [] et {}.
+    """
+    if name == SEARCH_TOOL_NAME:
+        return execute_search(arguments, start_index)
+    if name == EPREUVE_TOOL_NAME:
+        return execute_creer_epreuve(arguments), [], {}
+    logger.warning("Outil inconnu demande par le LLM : {}", name)
+    return f"Outil inconnu : {name}.", [], {}

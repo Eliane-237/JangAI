@@ -20,7 +20,7 @@ from langgraph.graph import END
 from loguru import logger
 
 from app.agent.state import AgentState
-from app.agent.tools import TOOLS, execute_search
+from app.agent.tools import TOOLS, execute_tool
 from app.prompts.templates import AGENT_SYSTEM_PROMPT
 from app.services import conversation
 from app.services.generator import chat_with_tools, complete
@@ -119,7 +119,11 @@ def agent_node(state: AgentState) -> dict:
 
     if message.tool_calls:
         pending = [
-            {"id": call.id, "arguments": call.function.arguments}
+            {
+                "id": call.id,
+                "name": call.function.name,
+                "arguments": call.function.arguments,
+            }
             for call in message.tool_calls
         ]
         logger.info("Agent : {} recherche(s) demandee(s)", len(pending))
@@ -135,8 +139,8 @@ def tools_node(state: AgentState) -> dict:
     filters = dict(state.get("filters") or {})
 
     for call in state.get("pending") or []:
-        content, new_sources, used_filters = execute_search(
-            call["arguments"], start_index=len(sources) + 1
+        content, new_sources, used_filters = execute_tool(
+            call.get("name", ""), call["arguments"], start_index=len(sources) + 1
         )
         sources.extend(source.to_dict() for source in new_sources)
         if used_filters:

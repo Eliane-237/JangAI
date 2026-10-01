@@ -12,6 +12,10 @@
 secrets/
 conftest.py
 
+# --- Documents generes (epreuves, corriges...) -----------------------
+# Produits a l'execution : ne pas versionner. Les gabarits (templates/) si.
+generated/
+
 # --- Environnements virtuels Python ----------------------------------
 .venv/
 venv/
@@ -34,6 +38,8 @@ dist/
 .coverage
 htmlcov/
 evaluation/
+scripts
+templates
 
 # --- Donnees (corpus, sorties du pipeline) ---------------------------
 # Les PDF sources et tout ce que le pipeline genere ne vont pas sur git.

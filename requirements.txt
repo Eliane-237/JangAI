@@ -38,6 +38,10 @@ alembic>=1.14.0
 # ---------- LLM : Groq ----------
 groq>=0.13.0
 
+# ---------- Generation de documents (.docx) ----------
+# docxtpl = gabarits Word (Jinja2) ; embarque python-docx.
+docxtpl>=0.19.0
+
 # ---------- Transcription vocale (STT, local) ----------
 # faster-whisper = Whisper via CTranslate2 (rapide, leger, GPU/CPU).
 faster-whisper>=1.1.0

@@ -9,6 +9,7 @@ Assemble les routeurs du dossier `app/routes` derriere une application FastAPI.
     POST /chat     reponse via l'agent LangGraph (routage + recherche + gen.)
     POST /transcribe  audio -> texte (speech-to-text local, faster-whisper)
     POST /chat/voice  audio -> transcription -> reponse de l'agent (tout-en-un)
+    GET  /documents/{name}  telechargement des .docx generes (epreuves...)
 
 Lancement (usage normal, modeles gardes chauds) :
     uvicorn app.main:app
@@ -24,7 +25,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.db import check_connection, get_statistics
-from app.routes import chat, query, search, transcribe
+from app.routes import chat, documents, query, search, transcribe
 
 app = FastAPI(
     title="JangAI",
@@ -36,6 +37,7 @@ app.include_router(query.router)
 app.include_router(search.router)
 app.include_router(chat.router)
 app.include_router(transcribe.router)
+app.include_router(documents.router)
 
 
 @app.on_event("startup")
