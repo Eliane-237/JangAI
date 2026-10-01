@@ -58,14 +58,15 @@ def save_document(
             INSERT INTO documents (
                 document_id, source_file, sub_document_id,
                 subject, level, track, cycle, language, program_year,
-                document_profile, page_count, gaps, diagnostics
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                document_type, document_profile, page_count, gaps, diagnostics
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (document_id) DO UPDATE SET
                 subject          = EXCLUDED.subject,
                 level            = EXCLUDED.level,
                 track            = EXCLUDED.track,
                 cycle            = EXCLUDED.cycle,
                 language         = EXCLUDED.language,
+                document_type    = EXCLUDED.document_type,
                 document_profile = EXCLUDED.document_profile,
                 page_count       = EXCLUDED.page_count,
                 gaps             = EXCLUDED.gaps,
@@ -76,7 +77,7 @@ def save_document(
                 document_id, source_file, sub_document_id,
                 identity.subject, identity.level, identity.track,
                 identity.cycle, identity.language, identity.program_year,
-                identity.profile.value, page_count,
+                identity.document_type, identity.profile.value, page_count,
                 json.dumps(gaps, ensure_ascii=False),
                 json.dumps(diagnostics, ensure_ascii=False),
             ),
@@ -91,11 +92,11 @@ _INSERT_CHUNK = """
 INSERT INTO chunks (
     chunk_id, document_id, source_file,
     content, indexed_content, content_hash,
-    subject, level, track, cycle, language, document_profile,
+    subject, level, track, cycle, language, document_type, document_profile,
     page_number, printed_page, sub_document_id, chunk_order,
     chunk_type, page_layout, extraction_method, reliability, char_count,
     hierarchy, metadata, embedding
-) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
 ON CONFLICT (chunk_id) DO UPDATE SET
     content         = EXCLUDED.content,
     indexed_content = EXCLUDED.indexed_content,
@@ -123,6 +124,7 @@ def _to_row(document: Document, vector: np.ndarray | None) -> tuple:
         meta.track,
         meta.cycle,
         meta.language,
+        meta.document_type,
         meta.document_profile.value,
         pos.page_number if pos else None,
         pos.printed_page if pos else None,

@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS documents (
     cycle             TEXT,
     language          TEXT,
     program_year      INTEGER,
+    document_type     TEXT,
     document_profile  TEXT,
 
     page_count        INTEGER     NOT NULL DEFAULT 0,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     track             TEXT,
     cycle             TEXT,
     language          TEXT,
+    document_type     TEXT,
     document_profile  TEXT,
 
     page_number       INTEGER,

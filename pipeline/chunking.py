@@ -188,6 +188,7 @@ def chunk_document(
             cycle=identity.cycle,
             language=identity.language,
             program_year=identity.program_year,
+            document_type=identity.document_type,
             position=Position(page_number=page or 0, order=order),
             hierarchy=_hierarchy(chunk),
             chunk_type=chunk_type,

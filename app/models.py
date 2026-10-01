@@ -236,6 +236,7 @@ class ChunkMetadata:
     cycle: str | None = None         # "secondaire", "elementaire"
     language: str | None = None      # "fr", "en"
     program_year: int | None = None
+    document_type: str | None = None  # "programme", "sujet", "corrige", ...
     document_profile: DocumentProfile = DocumentProfile.MIXED
 
     # --- Localisation -------------------------------------------------

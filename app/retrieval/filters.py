@@ -12,7 +12,7 @@ import re
 import unicodedata
 
 # Seules ces colonnes typees et indexees peuvent servir de filtre.
-_ALLOWED_FILTERS = {"subject", "level", "track", "cycle", "language"}
+_ALLOWED_FILTERS = {"subject", "level", "track", "cycle", "language", "document_type"}
 
 
 def build_filter_clause(filters: dict[str, str] | None) -> tuple[str, list]:

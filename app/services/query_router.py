@@ -21,7 +21,7 @@ from app.db import get_connection
 
 # Colonnes de facette sur lesquelles router. Extensible : ajouter par exemple
 # "document_type" ou "program_year" ici (une fois la colonne presente) suffit.
-FACET_COLUMNS: tuple[str, ...] = ("subject", "level", "track")
+FACET_COLUMNS: tuple[str, ...] = ("subject", "level", "track", "document_type")
 
 
 def _strip(text: str) -> str:
@@ -52,17 +52,23 @@ def _facet_values() -> dict[str, set[str]]:
     return values
 
 
-# Synonymes de matiere : le LLM (ou l'utilisateur) ecrit « mathematiques »,
-# la base stocke « maths ». On rabat ces variantes sur une forme pivot avant
-# de la confronter aux valeurs reelles de la base. Cle et valeur SANS accents.
+# Synonymes de matiere : variantes du LLM/utilisateur rabattues sur la matiere
+# CANONIQUE telle que stockee en base (cf. pipeline.preprocessor). Cle et valeur
+# sans accents. Le rapprochement final se fait ensuite sur les valeurs reelles.
 _SUBJECT_SYNONYMS = {
-    "mathematiques": "maths",
-    "mathematique": "maths",
-    "math": "maths",
-    "maths": "maths",
-    "francais": "francais",
+    "maths": "mathematiques",
+    "math": "mathematiques",
+    "mathematique": "mathematiques",
+    "mathematiques": "mathematiques",
     "lettres": "francais",
     "philo": "philosophie",
+    "svt": "svt",
+    "sciences de la vie": "svt",
+    "physique": "sciences_physiques",
+    "physique chimie": "sciences_physiques",
+    "ses": "sciences_economiques_sociales",
+    "histoire geographie": "histoire_geographie",
+    "hist geo": "histoire_geographie",
 }
 
 

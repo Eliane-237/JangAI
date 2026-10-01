@@ -193,6 +193,133 @@ _CYCLE_PATTERN = re.compile(
     r"\b([EÉ]L[EÉ]MENTAIRE|MOYEN|SECONDAIRE|PR[EÉ]SCOLAIRE|SUP[EÉ]RIEUR)\b", re.I
 )
 
+# ======================================================================
+# Vocabulaire CONTROLE des matieres + type de document
+# ======================================================================
+#
+# L'ancienne extraction « par elimination » laissait le nom de fichier quasi
+# brut dans `subject` (300+ valeurs : anglais_lv2_1er_gr, corrige_anglais...).
+# On passe a une DETECTION par mots-cles vers une liste fermee de matieres :
+# meme matiere -> meme valeur, quel que soit le libelle du fichier.
+#
+# Ordre = PRIORITE (du plus specifique au plus general) : on retient la
+# premiere matiere dont un indice apparait (sur le slug, sinon le contenu).
+_SUBJECT_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("sciences_physiques", ("sciences physiques", "sci phy", "sc phy", "sc phys",
+                             "scien ph", "sci ph", "scph", "physique chimie", "physique")),
+    ("svt", ("svt", "sciences de la vie", "science de la vie", "scvt")),
+    ("mathematiques", ("mathematiques", "mathematique", "maths", "math")),
+    ("philosophie", ("philosophie", "philo")),
+    ("francais", ("francais", "fran", "lettres modernes", "lettres")),
+    ("anglais", ("anglais", "english", "angl")),
+    ("allemand", ("allemand", "allemang", "deutsch", "all lv")),
+    ("espagnol", ("espagnol", "espanol", "espag", "esp")),
+    ("portugais", ("portugais", "portugai", "port")),
+    ("italien", ("italien", "italian")),
+    ("russe", ("russe",)),
+    ("grec", ("grec",)),
+    ("latin", ("latin",)),
+    ("arabe", ("arabe", "arab", "ara")),
+    ("etudes_islamiques", ("etudes islamiques", "etude islamique", "islamique")),
+    ("histoire_geographie", ("histoire geographie", "histoire", "geographie",
+                             "hist geo", "hist-geo", "histo", "hg")),
+    ("sciences_economiques_sociales", ("sciences economiques", "sciences eco",
+                                       "economie generale", "economie", "ses")),
+    ("informatique", ("informatique",)),
+    ("droit", ("droit",)),
+    ("gestion", ("management", "gestion")),
+    ("education_civique", ("education civique", "civisme", "civilisation", "civilsation")),
+    ("eps", ("education physique", "eps")),
+    ("comptabilite", ("comptabilite", "compta")),
+    ("construction_mecanique", ("construction mecanique", "cons meca", "cmc", "construction")),
+)
+
+# Jetons de STRUCTURE/TYPE a retirer pour deviner une matiere inconnue du
+# vocabulaire (matieres techniques non listees), sans la polluer.
+_STRUCTURE_TOKENS = {
+    "programme", "programmes", "prog", "officiel", "final", "version", "senegal",
+    "men", "document", "doc", "sujet", "sujets", "epreuve", "epreuves", "corrige",
+    "corriges", "correction", "corr", "answer", "key", "bac", "baccalaureat",
+    "1er", "2e", "2eme", "premier", "deuxieme", "groupe", "gr", "grp", "rempl",
+    "remplacement", "session", "lv", "lv1", "lv2", "l1", "l2", "s1", "s2", "s3",
+    "s4", "s5", "ls", "g", "steg", "stidd", "f6", "v", "r", "vl1", "canevas",
+    "calendrier", "convocation", "diplomes", "vague", "region", "dakar",
+    "terminale", "terminales", "tle", "tles", "premiere", "seconde", "classe",
+    "classes", "de", "du", "des", "la", "le", "et", "a", "pour", "locale",
+}
+
+
+def _normalize_for_match(text: str) -> str:
+    """Minuscule, sans accents, separateurs unifies en espaces."""
+    norm = strip_accents(text or "").lower().replace("_", " ").replace("-", " ")
+    return re.sub(r"\s+", " ", norm).strip()
+
+
+def canonical_subject(raw_slug: str | None) -> str | None:
+    """Rabat un slug de nom de fichier sur une matiere canonique.
+
+    Matching par TOKEN (et non par sous-chaine) pour eviter les faux positifs :
+    un alias court comme « esp » ne doit matcher que le jeton « esp », jamais
+    l'interieur d'un mot. A defaut, on nettoie le slug de ses jetons de
+    structure/type pour isoler une matiere non listee.
+    """
+    phrase = _normalize_for_match(raw_slug)
+    # Sous-chaine sur le SLUG uniquement : les noms de fichiers sont des libelles
+    # courts et controles, donc « esp » / « ara » n'y matchent pas l'interieur
+    # d'un mot (contrairement au contenu, d'ou son exclusion ici).
+    for canon, keys in _SUBJECT_KEYWORDS:
+        if any(key in phrase for key in keys):
+            return canon
+    # Matiere hors vocabulaire : on nettoie le slug plutot que de tout jeter.
+    cleaned = "_".join(
+        t for t in re.split(r"[^a-z0-9]+", strip_accents(raw_slug or "").lower())
+        if t and t not in _STRUCTURE_TOKENS and not t.isdigit()
+    )
+    return cleaned if len(cleaned) >= 3 else None
+
+
+def detect_document_type(file_name: str, text: str = "") -> str:
+    """Devine le type de document : corrige / administratif / programme / sujet / cours.
+
+    Ordre important : un corrige d'epreuve doit etre classe « corrige », pas
+    « sujet » ; d'ou la verification des corriges en premier.
+    """
+    name = _normalize_for_match(file_name)
+    if any(k in name for k in ("corrige", "corrig", "correction", "corrgige",
+                               "corrife", "answer", "corr ")):
+        return "corrige"
+    if any(k in name for k in ("calendrier", "convocation", "diplome",
+                               "deliberation", "releve", "vague", "proces", "pv ")):
+        return "administratif"
+    if any(k in name for k in ("programme", "prog ", "curriculum", "referentiel",
+                               "canevas", "cadrage")):
+        return "programme"
+    if any(k in name for k in ("sujet", "epreuve", "bac", "groupe", " gr ", "gr ",
+                               "1er", "2e", "rempl", "session", "examen",
+                               "composition", "devoir")):
+        return "sujet"
+    if any(k in name for k in ("cours", "lecon", "fiche", "sequence")):
+        return "cours"
+    if "corrige" in _normalize_for_match(text[:2000]):
+        return "corrige"
+    return "inconnu"
+
+
+# Niveaux du cycle elementaire : faux positifs frequents sur des copies du Bac.
+_ELEMENTARY_LEVELS = {"ci", "cp", "ce1", "ce2", "cm1", "cm2"}
+
+
+def _infer_level(level: str | None, document_type: str) -> str | None:
+    """Fiabilise le niveau : les epreuves/corriges du Bac sont en terminale.
+
+    Corrige les faux positifs « ci/cp/... » captes au fil du texte sur des
+    sujets de Bac, et comble le niveau manquant pour ces documents.
+    """
+    if document_type in ("sujet", "corrige"):
+        if level is None or level in _ELEMENTARY_LEVELS:
+            return "terminale"
+    return level
+
 
 @dataclass
 class DocumentIdentity:
@@ -206,6 +333,7 @@ class DocumentIdentity:
     program_year: int | None = None
     profile: DocumentProfile = DocumentProfile.MIXED
     subject_source: str = "unknown"
+    document_type: str = "inconnu"  # programme | sujet | corrige | administratif | cours
 
     def summary(self) -> str:
         parts = [self.subject or "?", self.level or "", self.track or ""]
@@ -277,11 +405,17 @@ def identify_document(
     )
     normalized = strip_accents(header_text)
 
-    # -- Matiere : nom de fichier d'abord ------------------------------
-    if subject := extract_subject_from_filename(file_name):
+    # -- Type de document (programme / sujet / corrige / ...) ----------
+    identity.document_type = detect_document_type(file_name, header_text)
+
+    # -- Matiere : vocabulaire controle sur le slug, sinon vote sur le contenu
+    raw_slug = extract_subject_from_filename(file_name)
+    if subject := canonical_subject(raw_slug):
         identity.subject, identity.subject_source = subject, "filename"
-    elif subject := extract_subject_from_content(normalized):
-        identity.subject, identity.subject_source = subject, "content"
+    elif title := extract_subject_from_content(normalized):
+        # On canonicalise aussi l'intitule trouve dans le texte.
+        identity.subject = canonical_subject(title) or title
+        identity.subject_source = "content"
 
     # -- Niveau ---------------------------------------------------------
     if match := _LEVEL_PATTERN.search(normalized):
@@ -310,6 +444,9 @@ def identify_document(
     years = [int(m.group(0)) for m in _YEAR_PATTERN.finditer(normalized)]
     if years:
         identity.program_year = Counter(years).most_common(1)[0][0]
+
+    # -- Fiabilisation du niveau (epreuves/corriges du Bac = terminale) -
+    identity.level = _infer_level(identity.level, identity.document_type)
 
     logger.info(
         "Identite de {} : {} (matiere depuis {}, langue {}, profil {})",

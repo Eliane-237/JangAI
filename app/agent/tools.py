@@ -61,6 +61,15 @@ TOOLS: list[dict] = [
                         "type": "string",
                         "description": "Filtre serie/filiere si connu (ex. S, L).",
                     },
+                    "type_document": {
+                        "type": "string",
+                        "description": (
+                            "Nature du document voulue si l'enseignant la precise : "
+                            "'programme' (objectifs/contenus officiels), 'sujet' "
+                            "(enonces d'epreuves), 'corrige' (solutions). Laisser "
+                            "vide pour chercher dans tous les types."
+                        ),
+                    },
                 },
                 "required": ["requete"],
             },
@@ -131,6 +140,7 @@ def execute_search(arguments: str | dict, start_index: int) -> tuple[str, list[S
             ("subject", args.get("matiere")),
             ("level", args.get("niveau")),
             ("track", args.get("serie")),
+            ("document_type", args.get("type_document")),
         )
         if isinstance(value, str) and value.strip()
     }
