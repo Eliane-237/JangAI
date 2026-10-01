@@ -8,6 +8,7 @@ Assemble les routeurs du dossier `app/routes` derriere une application FastAPI.
     POST /ask      reponse complete generee, avec sources (pipeline lineaire)
     POST /chat     reponse via l'agent LangGraph (routage + recherche + gen.)
     POST /transcribe  audio -> texte (speech-to-text local, faster-whisper)
+    POST /chat/voice  audio -> transcription -> reponse de l'agent (tout-en-un)
 
 Lancement (usage normal, modeles gardes chauds) :
     uvicorn app.main:app
