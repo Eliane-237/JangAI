@@ -126,10 +126,10 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="Qwen/Qwen3-Embedding-0.6B")
     embedding_dim: int = Field(default=1024)
     embedding_batch_size: int = Field(default=16)
-    embedding_device: str = Field(default="cpu")
+    embedding_device: str = Field(default="auto")
     embedding_normalize: bool = Field(default=True)
 
-    # Qwen3 attend une instruction cote REQUETE uniquement ; les documents
+    # Qwen3 attend une instruction cote REQUETE uniquement ; les documents       
     # sont encodes bruts. L'appliquer des deux cotes degrade le rappel.
     query_instruction: str = Field(
         default=(
@@ -146,7 +146,7 @@ class Settings(BaseSettings):
     # chaque paire (question, chunk) au lieu de compter des mots communs.
     # `use_cross_encoder=False` retombe sur la ponderation heuristique.
     reranker_model: str = Field(default="Qwen/Qwen3-Reranker-0.6B")
-    reranker_device: str = Field(default="cpu")
+    reranker_device: str = Field(default="auto")
     use_cross_encoder: bool = Field(default=True)
     # Le cross-encoder est couteux sur CPU : on ne rerank que les meilleurs
     # candidats (par score vectoriel) pour borner le temps de reponse.
@@ -203,7 +203,7 @@ class Settings(BaseSettings):
     chunk_max_tokens: int = Field(default=512)
     chunk_merge_peers: bool = Field(default=True)
     chunk_min_size: int = Field(default=80)   # plancher en caracteres
-
+  
     # --- Extraction des tableaux --------------------------------------
     # Reconnaissance de structure par TableFormer (Docling). Resout les
     # cellules fusionnees et marque les en-tetes.
@@ -232,10 +232,25 @@ class Settings(BaseSettings):
     groq_max_tokens: int = Field(default=1500)
     max_context_chars: int = Field(default=8000)
 
+    # --- Transcription vocale (STT, /transcribe) ----------------------
+
+    stt_model: str = Field(default="large-v3")
+    stt_device: str = Field(default="auto")
+    stt_compute_type: str = Field(default="float16")
+    # Langue forcee (ex. "fr"). Vide -> detection automatique par Whisper.
+    stt_language: str = Field(default="fr")
+    # Filtre VAD : coupe les silences avant transcription (plus rapide, moins
+    # d'hallucinations sur les blancs).
+    stt_vad_filter: bool = Field(default=True)
+    # Taille max d'un fichier audio accepte par /transcribe (en Mo).
+    stt_max_upload_mb: int = Field(default=25)
+
     # --- Serveur ------------------------------------------------------
     # Precharge embedding + reranker au demarrage du serveur, pour que la
     # premiere question n'attende pas le chargement des modeles.
     warmup_models: bool = Field(default=True)
+    # Precharge aussi le modele de transcription (si la voix est utilisee).
+    warmup_stt: bool = Field(default=False)
 
     # --- Memoire conversationnelle (/chat) ----------------------------
     # Nombre de tours precedents conserves par conversation, et nombre max de

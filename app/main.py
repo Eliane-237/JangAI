@@ -7,6 +7,7 @@ Assemble les routeurs du dossier `app/routes` derriere une application FastAPI.
     POST /search   candidats apres recherche + reranking (debogage, sans LLM)
     POST /ask      reponse complete generee, avec sources (pipeline lineaire)
     POST /chat     reponse via l'agent LangGraph (routage + recherche + gen.)
+    POST /transcribe  audio -> texte (speech-to-text local, faster-whisper)
 
 Lancement (usage normal, modeles gardes chauds) :
     uvicorn app.main:app
@@ -22,7 +23,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.db import check_connection, get_statistics
-from app.routes import chat, query, search
+from app.routes import chat, query, search, transcribe
 
 app = FastAPI(
     title="JangAI",
@@ -33,6 +34,7 @@ app = FastAPI(
 app.include_router(query.router)
 app.include_router(search.router)
 app.include_router(chat.router)
+app.include_router(transcribe.router)
 
 
 @app.on_event("startup")
@@ -93,10 +95,15 @@ def _warmup_models() -> None:
         reranker = get_cross_encoder()
         if reranker is not None:
             reranker.score("prechauffage", ["prechauffage"])
+        if get_settings().warmup_stt:
+            from app.services.transcription import get_model
+
+            get_model()
         logger.info(
-            "Modeles prechauffes en {:.1f}s (embedding + reranker) : "
+            "Modeles prechauffes en {:.1f}s (embedding + reranker{}) : "
             "requetes immediates.",
             time.perf_counter() - started,
+            " + STT" if get_settings().warmup_stt else "",
         )
     except Exception as exc:  # pragma: no cover
         logger.warning(

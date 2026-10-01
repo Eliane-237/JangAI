@@ -38,6 +38,14 @@ alembic>=1.14.0
 # ---------- LLM : Groq ----------
 groq>=0.13.0
 
+# ---------- Transcription vocale (STT, local) ----------
+# faster-whisper = Whisper via CTranslate2 (rapide, leger, GPU/CPU).
+faster-whisper>=1.1.0
+# Runtime CUDA 12 requis par CTranslate2 pour la transcription sur GPU
+# (cublas64_12.dll + cuDNN 9). Inutile en CPU seul, mais sans danger.
+nvidia-cublas-cu12>=12.4 ; platform_system == "Windows"
+nvidia-cudnn-cu12>=9.0 ; platform_system == "Windows"
+
 # ---------- API ----------
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
