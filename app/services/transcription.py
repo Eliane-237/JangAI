@@ -87,6 +87,26 @@ def get_model():
     return _MODEL
 
 
+def warmup() -> None:
+    """Charge le modele ET chauffe le GPU (kernels/cuBLAS) sur du silence.
+
+    Sans ce passage a vide, la toute premiere transcription paie encore
+    l'initialisation CUDA. On decode 1 s de silence pour tout amorcer.
+    """
+    try:
+        import numpy as np
+
+        model = get_model()
+        segments, _ = model.transcribe(
+            np.zeros(16000, dtype="float32"),
+            language=get_settings().stt_language or None,
+        )
+        list(segments)  # force l'execution (le generateur est paresseux)
+        logger.info("Modele STT prechauffe.")
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Prechauffage STT incomplet ({}) : 1re requete plus lente.", exc)
+
+
 def _run(model, audio: str | bytes) -> dict:
     """Execute la transcription et assemble le resultat."""
     settings = get_settings()
@@ -121,9 +141,7 @@ def transcribe(audio: str | bytes) -> dict:
     except RuntimeError as exc:
         message = str(exc).lower()
         if any(k in message for k in ("cuda", "cublas", "cudnn", "cu12")):
-            # GPU indisponible a l'execution malgre le chargement : on reconstruit
-            # le modele sur CPU et on reessaie une fois, pour ne jamais echouer
-            # faute de GPU.
+            # GPU indisponible a l'execution malgre le chargement : on reconstruit le modele sur CPU et on reessaie une fois, pour ne jamais echouer faute de GPU.
             logger.warning("STT GPU indisponible ({}) : repli sur CPU.", exc)
             global _MODEL
             _MODEL = _build_model(force_cpu=True)

@@ -223,7 +223,19 @@ class Settings(BaseSettings):
     ocr_languages: str = Field(default="fra+eng")
     ocr_cache_enabled: bool = Field(default=True)
 
-    # --- LLM (Groq) ---------------------------------------------------
+    # --- LLM (API compatible OpenAI : Groq, vLLM, Ollama, ton modele...) ---
+    # UN SEUL endroit a changer pour basculer de fournisseur, sans toucher au
+    # code. Vides => repli sur les parametres Groq ci-dessous (retrocompat).
+    #   LLM_BASE_URL : URL du service (ex. http://localhost:8000/v1 pour le tien)
+    #   LLM_API_KEY  : cle si l'endpoint en exige une (vide pour un modele local)
+    #   LLM_MODEL    : nom du modele a appeler
+    llm_base_url: str = Field(default="https://api.groq.com/openai/v1")
+    llm_api_key: str = Field(default="")
+    llm_model: str = Field(default="")
+    llm_temperature: float = Field(default=0.2)
+    llm_max_tokens: int = Field(default=1500)
+
+    # --- LLM : parametres Groq (defaut / repli) -----------------------
     groq_api_key: str = Field(default="")
     # Modeles Groq disponibles (aout 2026) : openai/gpt-oss-120b (le plus
     # capable), qwen/qwen3.8-27b, groq/compound. Surchargeable via GROQ_MODEL.

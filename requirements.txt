@@ -35,7 +35,10 @@ pgvector>=0.3.6
 SQLAlchemy>=2.0.36
 alembic>=1.14.0
 
-# ---------- LLM : Groq ----------
+# ---------- LLM (API compatible OpenAI : Groq, vLLM, Ollama, local...) ----------
+# Client unique, pointe sur LLM_BASE_URL : changer de fournisseur = changer .env.
+openai>=1.40.0
+# Conserve pour l'evaluation DeepEval (GroqJudge) ; non utilise par la generation.
 groq>=0.13.0
 
 # ---------- Generation de documents (.docx) ----------

@@ -271,9 +271,11 @@ def canonical_subject(raw_slug: str | None) -> str | None:
         if any(key in phrase for key in keys):
             return canon
     # Matiere hors vocabulaire : on nettoie le slug plutot que de tout jeter.
+    # On ne garde que des jetons PUREMENT alphabetiques : une vraie matiere ne
+    # contient pas de chiffres (ecarte les codes d'epreuve type « 2024gl42... »).
     cleaned = "_".join(
         t for t in re.split(r"[^a-z0-9]+", strip_accents(raw_slug or "").lower())
-        if t and t not in _STRUCTURE_TOKENS and not t.isdigit()
+        if t and t not in _STRUCTURE_TOKENS and t.isalpha()
     )
     return cleaned if len(cleaned) >= 3 else None
 

@@ -99,9 +99,9 @@ def _warmup_models() -> None:
         if reranker is not None:
             reranker.score("prechauffage", ["prechauffage"])
         if get_settings().warmup_stt:
-            from app.services.transcription import get_model
+            from app.services.transcription import warmup as warmup_stt
 
-            get_model()
+            warmup_stt()
         logger.info(
             "Modeles prechauffes en {:.1f}s (embedding + reranker{}) : "
             "requetes immediates.",

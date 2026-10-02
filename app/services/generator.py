@@ -1,5 +1,5 @@
 """
-Generation de la reponse par un LLM (Groq).
+Generation de la reponse par un LLM.
 
 Le modele ne repond QUE sur la base des extraits fournis, et cite ses sources.
 Cette contrainte est ce qui distingue une reponse tracable d'une hallucination :
@@ -10,21 +10,13 @@ page.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 from loguru import logger
 
 from app.config import get_settings
 from app.prompts.templates import SYSTEM_PROMPT, build_user_prompt
 from app.retrieval.search import Candidate
-
-
-@lru_cache(maxsize=1)
-def _client():
-    """Client Groq unique par processus."""
-    from groq import Groq
-
-    return Groq(api_key=get_settings().groq_api_key)
+from app.services import llm
 
 
 def complete(
@@ -34,7 +26,7 @@ def complete(
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> str:
-    """Un aller-retour au LLM Groq, reutilisable (generation, reformulation...).
+    """Un aller-retour au LLM, reutilisable (generation, reformulation...).
 
     Args:
         system: Message systeme
@@ -46,23 +38,17 @@ def complete(
         Le texte de la reponse
 
     Raises:
-        RuntimeError: Si la cle Groq est absente
+        RuntimeError: Si le LLM n'est pas configure (cle absente pour un service distant)
     """
-    settings = get_settings()
-    if not settings.groq_api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY absente : renseignez-la dans .env pour activer le LLM."
-        )
-    completion = _client().chat.completions.create(
-        model=settings.groq_model,
-        temperature=settings.groq_temperature if temperature is None else temperature,
-        max_tokens=settings.groq_max_tokens if max_tokens is None else max_tokens,
-        messages=[
+    message = llm.chat(
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
-    return (completion.choices[0].message.content or "").strip()
+    return (message.content or "").strip()
 
 
 def chat_with_tools(
@@ -79,36 +65,17 @@ def chat_with_tools(
     LLM qui decide d'appeler un outil (ex. la recherche) ou de repondre
     directement. La boucle agent <-> outils est orchestree par l'appelant.
 
-    Args:
-        messages: Historique complet du tour (system, user, assistant, tool...)
-        tools: Schemas des outils au format OpenAI/Groq
-        tool_choice: "auto" (le LLM decide) ou "none" (reponse forcee, sans outil)
-
-    Returns:
-        L'objet message de la reponse (`.content` et/ou `.tool_calls`)
-
-    Raises:
-        RuntimeError: Si la cle Groq est absente
+    Note : avec `tool_choice="none"`, les outils ne sont pas transmis (certains
+    modeles ignorent "none" et appellent quand meme un outil, ce que l'API
+    rejette) ; sans outil, le modele est force de conclure.
     """
-    settings = get_settings()
-    if not settings.groq_api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY absente : renseignez-la dans .env pour activer l'agent."
-        )
-    params: dict = {
-        "model": settings.groq_model,
-        "temperature": settings.groq_temperature if temperature is None else temperature,
-        "max_tokens": settings.groq_max_tokens if max_tokens is None else max_tokens,
-        "messages": messages,
-    }
-    # tool_choice="none" : on N'ENVOIE PAS les outils. Certains modeles (gpt-oss)
-    # ignorent "none" et appellent quand meme un outil, ce que Groq rejette
-    # (400). Retirer les outils rend l'appel impossible : le modele conclut.
-    if tool_choice != "none":
-        params["tools"] = tools
-        params["tool_choice"] = tool_choice
-    completion = _client().chat.completions.create(**params)
-    return completion.choices[0].message
+    return llm.chat(
+        messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 @dataclass
@@ -203,14 +170,9 @@ def generate_answer(
         La reponse et ses sources
 
     Raises:
-        RuntimeError: Si la cle Groq est absente
+        RuntimeError: Si le LLM n'est pas configure (cle absente pour un service distant)
     """
     settings = get_settings()
-    if not settings.groq_api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY absente : renseignez-la dans .env pour activer la generation."
-        )
-
     context, sources = build_context(candidates, settings.max_context_chars)
     if not context:
         return Answer(
@@ -228,12 +190,7 @@ def generate_answer(
             messages.append({"role": "assistant", "content": turn["answer"]})
     messages.append({"role": "user", "content": build_user_prompt(context, query)})
 
-    completion = _client().chat.completions.create(
-        model=settings.groq_model,
-        temperature=settings.groq_temperature,
-        max_tokens=settings.groq_max_tokens,
-        messages=messages,
-    )
-    text = (completion.choices[0].message.content or "").strip()
+    message = llm.chat(messages)
+    text = (message.content or "").strip()
     logger.info("Reponse generee ({} caracteres, {} sources)", len(text), len(sources))
     return Answer(text=text, sources=sources)
